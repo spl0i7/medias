@@ -1,4 +1,7 @@
+#![allow(dead_code)]
+
 use thiserror::Error;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("invalid protocol request command")]
@@ -9,6 +12,8 @@ pub enum Error {
     InvalidRequest,
     #[error("io error")]
     IO(#[from] tokio::io::Error),
+    #[error("connection dial timeout")]
+    Timeout(#[from] tokio::time::error::Elapsed),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -37,8 +42,9 @@ impl Command {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Reply {
+    #[default]
     RequestGranted,
     RequestRejected,
     NotRunningIdentd,
@@ -54,43 +60,18 @@ impl Reply {
             Self::CouldNotConfirmId => 0x5D,
         }
     }
-
-    pub const fn from_bytes(input: &[u8]) -> Result<Self, Error> {
-        if input.is_empty() {
-            return Err(Error::UnrecognizedReply);
-        }
-
-        match input[0] {
-            0x5A => Ok(Self::RequestGranted),
-            0x5B => Ok(Self::RequestRejected),
-            0x5C => Ok(Self::NotRunningIdentd),
-            0x5D => Ok(Self::CouldNotConfirmId),
-            _ => Err(Error::UnrecognizedReply),
-        }
-    }
 }
 
 #[derive(Debug)]
 pub struct Request {
-    pub version: u8,
-    pub command: Command,
-    pub dest_port: u16,
-    pub dest_ip: u32,
-    pub id: Vec<u8>,
+    pub(crate) version: u8,
+    pub(crate) command: Command,
+    pub(crate) dest_port: u16,
+    pub(crate) dest_ip: u32,
+    pub(crate) id: Vec<u8>,
 }
 
 impl Request {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut raw = Vec::new();
-        raw.push(self.version);
-
-        raw.push(self.command.to_bytes());
-        raw.extend(self.dest_port.to_be_bytes());
-        raw.extend(self.dest_ip.to_be_bytes());
-        raw.extend(&self.id);
-
-        raw
-    }
     pub fn from_bytes(input: &[u8]) -> Result<Self, Error> {
         if input.len() < 8 {
             return Err(Error::InvalidRequest);
@@ -112,38 +93,31 @@ impl Request {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct Response {
-    pub version: u8,
-    pub reply: Reply,
-    pub dest_port: u16,
-    pub dest_ip: u32,
+    pub(crate) version: u8,
+    pub(crate) reply: Reply,
+    pub(crate) dest_port: u16,
+    pub(crate) dest_ip: u32,
 }
 
 impl Response {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut raw = Vec::new();
-        raw.push(self.version);
-        raw.push(self.reply.to_bytes());
-        raw.extend(self.dest_port.to_be_bytes());
-        raw.extend(self.dest_ip.to_be_bytes());
+    pub fn reject_response() -> Self {
+        Response {
+            version: 0,
+            reply: Reply::RequestRejected,
+            dest_port: 0,
+            dest_ip: 0,
+        }
+    }
+    pub fn to_bytes(&self) -> [u8; 8] {
+        let mut raw = [0; 8];
+
+        raw[0] = self.version;
+        raw[1] = self.reply.to_bytes();
+        raw[2..4].copy_from_slice(&self.dest_port.to_be_bytes());
+        raw[4..8].copy_from_slice(&self.dest_ip.to_be_bytes());
 
         raw
-    }
-    pub fn from_bytes(input: &[u8]) -> Result<Self, Error> {
-        if input.len() < 2 {
-            return Err(Error::InvalidRequest);
-        }
-
-        let version = input[0];
-        let reply = Reply::from_bytes(&input[1..])?;
-        let dest_port = u16::from_be_bytes([input[2], input[3]]);
-        let dest_ip = u32::from_be_bytes([input[4], input[5], input[6], input[7]]);
-
-        Ok(Self {
-            version,
-            reply,
-            dest_port,
-            dest_ip,
-        })
     }
 }

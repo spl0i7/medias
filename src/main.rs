@@ -1,12 +1,14 @@
-use crate::protocol::{Command, Error, Reply};
+use crate::protocol::{Command, Error};
 use log::{debug, error, info};
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net;
 
 mod protocol;
 
 const MAX_LENGTH: usize = 8 + 128;
+const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -45,37 +47,43 @@ async fn handle_connect(
     mut stream: net::TcpStream,
     request: protocol::Request,
 ) -> Result<(), Error> {
-    let response = protocol::Response {
-        version: 0,
-        reply: Reply::RequestGranted,
-        dest_port: 0,
-        dest_ip: 0,
-    };
-
-    stream.write_all(&response.to_bytes()).await?;
-
-    let ip_bytes = request.dest_ip.to_be_bytes();
-
-    let addr = SocketAddrV4::new(
-        Ipv4Addr::new(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]),
-        request.dest_port,
-    );
+    let addr = SocketAddrV4::new(Ipv4Addr::from(request.dest_ip), request.dest_port);
 
     debug!("connecting to {:?}", addr);
-    let upstream = net::TcpStream::connect(addr).await?;
-    tokio::spawn(async move {
-        proxy_connection(stream, upstream).await;
-    });
 
-    Ok(())
+    let upstream =
+        tokio::time::timeout(DEFAULT_CONNECTION_TIMEOUT, net::TcpStream::connect(addr)).await;
+
+    match upstream {
+        Ok(Ok(upstream)) => {
+            stream
+                .write_all(&protocol::Response::default().to_bytes())
+                .await?;
+            tokio::spawn(proxy_connection(stream, upstream));
+
+            Ok(())
+        }
+        Err(e) => {
+            stream
+                .write_all(&protocol::Response::reject_response().to_bytes())
+                .await?;
+            Err(e)?
+        }
+        Ok(Err(e)) => {
+            stream
+                .write_all(&protocol::Response::reject_response().to_bytes())
+                .await?;
+            Err(e)?
+        }
+    }
 }
 
 async fn proxy_connection(mut incoming: net::TcpStream, mut upstream: net::TcpStream) {
     let (mut read_incoming, mut write_incoming) = incoming.split();
     let (mut read_upstream, mut write_upstream) = upstream.split();
 
-    tokio::select! {
-        _ = tokio::io::copy(&mut read_incoming, &mut write_upstream) => {}
-        _ = tokio::io::copy(&mut read_upstream, &mut write_incoming) => {}
-    }
+    let _ = tokio::join!(
+        tokio::io::copy(&mut read_incoming, &mut write_upstream),
+        tokio::io::copy(&mut read_upstream, &mut write_incoming)
+    );
 }
