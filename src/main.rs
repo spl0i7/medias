@@ -30,7 +30,7 @@ async fn main() -> std::io::Result<()> {
         match request.command {
             Command::Connect => {
                 if let Err(err) = handle_connect(stream, request).await {
-                    error!("{:?}", err)
+                    error!("{:?}", err);
                 }
             }
             Command::Bind => {
@@ -52,15 +52,12 @@ async fn handle_connect(
         dest_ip: 0,
     };
 
-    stream.write_all(&*response.to_bytes()).await?;
+    stream.write_all(&response.to_bytes()).await?;
+
+    let ip_bytes = request.dest_ip.to_be_bytes();
 
     let addr = SocketAddrV4::new(
-        Ipv4Addr::new(
-            request.ip_bytes().0,
-            request.ip_bytes().1,
-            request.ip_bytes().2,
-            request.ip_bytes().3,
-        ),
+        Ipv4Addr::new(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]),
         request.dest_port,
     );
 

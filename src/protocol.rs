@@ -18,20 +18,20 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn to_bytes(&self) -> u8 {
+    pub const fn to_bytes(&self) -> u8 {
         match self {
-            Command::Connect => 1,
-            Command::Bind => 2,
+            Self::Connect => 1,
+            Self::Bind => 2,
         }
     }
 
-    pub fn from_bytes(input: &[u8]) -> Result<Self, Error> {
+    pub const fn from_bytes(input: &[u8]) -> Result<Self, Error> {
         if input.is_empty() {
             return Err(Error::UnrecognizedCommand);
         }
         match input[0] {
-            1 => Ok(Command::Connect),
-            2 => Ok(Command::Bind),
+            1 => Ok(Self::Connect),
+            2 => Ok(Self::Bind),
             _ => Err(Error::UnrecognizedCommand),
         }
     }
@@ -46,25 +46,25 @@ pub enum Reply {
 }
 
 impl Reply {
-    pub fn to_bytes(&self) -> u8 {
+    pub const fn to_bytes(&self) -> u8 {
         match self {
-            Reply::RequestGranted => 0x5A,
-            Reply::RequestRejected => 0x5B,
-            Reply::NotRunningIdentd => 0x5C,
-            Reply::CouldNotConfirmId => 0x5D,
+            Self::RequestGranted => 0x5A,
+            Self::RequestRejected => 0x5B,
+            Self::NotRunningIdentd => 0x5C,
+            Self::CouldNotConfirmId => 0x5D,
         }
     }
 
-    pub fn from_bytes(input: &[u8]) -> Result<Self, Error> {
+    pub const fn from_bytes(input: &[u8]) -> Result<Self, Error> {
         if input.is_empty() {
             return Err(Error::UnrecognizedReply);
         }
 
         match input[0] {
-            0x5A => Ok(Reply::RequestGranted),
-            0x5B => Ok(Reply::RequestRejected),
-            0x5C => Ok(Reply::NotRunningIdentd),
-            0x5D => Ok(Reply::CouldNotConfirmId),
+            0x5A => Ok(Self::RequestGranted),
+            0x5B => Ok(Self::RequestRejected),
+            0x5C => Ok(Self::NotRunningIdentd),
+            0x5D => Ok(Self::CouldNotConfirmId),
             _ => Err(Error::UnrecognizedReply),
         }
     }
@@ -109,11 +109,6 @@ impl Request {
             dest_ip,
             id,
         })
-    }
-
-    pub fn ip_bytes(&self) -> (u8, u8, u8, u8) {
-        let bytes = self.dest_ip.to_be_bytes();
-        (bytes[0], bytes[1], bytes[2], bytes[3])
     }
 }
 
